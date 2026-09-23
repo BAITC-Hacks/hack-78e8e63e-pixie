@@ -1,0 +1,631 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Граф денег — HackAlem AI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+  :root{
+    --bg:#0a0d12; --panel:#10141b; --panel2:#151a22; --line:#232a35;
+    --text:#e7edf5; --dim:#71829a; --accent:#3fc9ff;
+    --consolidator:#ff4d6d; --distributor:#c86bff; --transit:#22e2b0;
+    --coordinator:#ffb020; --terminal:#7c8ba1; --peripheral:#33404f;
+    --good:#3ddc97;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Space Grotesk',sans-serif;height:100vh;overflow:hidden;}
+  #app{display:grid;grid-template-columns:290px 1fr 320px;grid-template-rows:56px 46px 1fr;height:100vh;}
+  header{grid-column:1/4;display:flex;align-items:center;gap:18px;padding:0 18px;border-bottom:1px solid var(--line);background:var(--panel);}
+  header h1{font-size:15px;font-weight:600;letter-spacing:.2px;margin:0;color:var(--text);}
+  header .sub{font-size:11px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
+  .loaders{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap;}
+  .loaders label{font-size:10.5px;font-family:'JetBrains Mono',monospace;color:var(--dim);border:1px solid var(--line);
+    padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;align-items:center;gap:5px;}
+  .loaders label.loaded{color:var(--good);border-color:var(--good);}
+  .loaders input{display:none;}
+
+  #kpis{grid-column:1/4;display:flex;align-items:center;gap:0;padding:0 18px;border-bottom:1px solid var(--line);
+    background:var(--panel2);overflow-x:auto;}
+  .kpi{padding:0 18px;border-right:1px solid var(--line);white-space:nowrap;font-family:'JetBrains Mono',monospace;}
+  .kpi:first-child{padding-left:0;}
+  .kpi b{display:block;font-size:14px;color:var(--accent);font-family:'Space Grotesk',sans-serif;font-weight:700;}
+  .kpi span{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.4px;}
+
+  aside.left{background:var(--panel);border-right:1px solid var(--line);overflow-y:auto;padding:14px;grid-row:3;}
+  aside.right{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:14px;grid-row:3;}
+  main{position:relative;background:radial-gradient(circle at 30% 20%, #0d1119 0%, #07080c 70%);grid-row:3;overflow:hidden;}
+
+  #tabs{position:absolute;top:14px;left:14px;z-index:10;display:flex;gap:4px;background:var(--panel);
+    border:1px solid var(--line);border-radius:8px;padding:4px;}
+  .tab-btn{background:transparent;border:none;color:var(--dim);padding:6px 12px;border-radius:6px;font-size:11.5px;
+    cursor:pointer;font-family:'Space Grotesk',sans-serif;font-weight:600;}
+  .tab-btn.active{background:var(--accent);color:#08131a;}
+  .tab-view{position:absolute;inset:0;display:none;}
+  .tab-view.active{display:block;}
+  #cy{width:100%;height:100%;}
+
+  #overview-view, #clusters-view, #resilience-view{overflow-y:auto;padding:70px 40px 30px;}
+  .panel-title{font-size:20px;font-weight:700;margin:0 0 4px;}
+  .panel-sub{font-size:12px;color:var(--dim);margin:0 0 24px;}
+  .chart-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;}
+  .chart-label{width:150px;font-size:12px;flex:0 0 auto;}
+  .chart-track{flex:1;background:var(--panel2);border-radius:4px;height:16px;overflow:hidden;border:1px solid var(--line);}
+  .chart-fill{height:100%;border-radius:4px 0 0 4px;}
+  .chart-val{width:80px;text-align:right;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--dim);}
+
+  table.data-table{width:100%;border-collapse:collapse;font-size:12px;}
+  table.data-table th{text-align:left;color:var(--dim);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--line);
+    text-transform:uppercase;font-size:10px;letter-spacing:.4px;position:sticky;top:0;background:var(--bg);}
+  table.data-table td{padding:8px 10px;border-bottom:1px solid var(--panel2);}
+  table.data-table tr:hover td{background:var(--panel2);}
+
+  .block{margin-bottom:18px;}
+  .block h3{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--dim);margin:0 0 8px;font-weight:600;}
+  input[type=text], select, textarea{width:100%;background:var(--panel2);border:1px solid var(--line);color:var(--text);
+    padding:7px 9px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:12px;}
+  .legend-item{display:flex;align-items:center;gap:7px;font-size:12px;padding:3px 0;cursor:pointer;color:var(--text);}
+  .legend-item.off{opacity:.3;}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto;box-shadow:0 0 6px currentColor;}
+  .toplist-item{padding:7px 8px;border-radius:6px;cursor:pointer;font-size:12px;margin-bottom:3px;border:1px solid transparent;}
+  .toplist-item:hover{background:var(--panel2);border-color:var(--line);}
+  .toplist-item .r{color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:10.5px;}
+  .card{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:12px;font-size:12.5px;line-height:1.5;}
+  .card b{color:var(--accent);}
+  .kv{display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px dashed var(--line);font-size:12px;}
+  .kv span:last-child{font-family:'JetBrains Mono',monospace;color:var(--text);}
+  .empty-hint{color:var(--dim);font-size:12px;line-height:1.6;}
+  button.mini{background:var(--panel2);border:1px solid var(--line);color:var(--text);padding:6px 10px;border-radius:6px;
+    font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace;}
+  button.mini:hover{border-color:var(--accent);color:var(--accent);}
+  #resilience-table{width:100%;font-size:11px;border-collapse:collapse;}
+  #resilience-table td,#resilience-table th{padding:4px 6px;border-bottom:1px solid var(--line);text-align:right;}
+  #resilience-table th{color:var(--dim);font-weight:500;text-align:right;}
+  #resilience-table td:first-child,#resilience-table th:first-child{text-align:left;}
+
+  #ai-panel{position:fixed;bottom:16px;right:336px;width:360px;max-height:60vh;background:var(--panel);
+    border:1px solid var(--line);border-radius:10px;display:none;flex-direction:column;box-shadow:0 8px 30px rgba(0,0,0,.5);z-index:50;}
+  #ai-panel.open{display:flex;}
+  #ai-panel .ai-head{padding:10px 12px;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;display:flex;justify-content:space-between;}
+  #ai-log{flex:1;overflow-y:auto;padding:10px 12px;font-size:12px;line-height:1.5;}
+  #ai-log .q{color:var(--accent);margin-bottom:4px;}
+  #ai-log .a{color:var(--text);margin-bottom:14px;white-space:pre-wrap;}
+  #ai-input-row{display:flex;gap:6px;padding:10px;border-top:1px solid var(--line);}
+  #ai-fab{position:fixed;bottom:16px;right:336px;background:var(--accent);color:#08131a;border:none;border-radius:20px;
+    padding:9px 16px;font-weight:600;font-size:12px;cursor:pointer;z-index:49;font-family:'Space Grotesk',sans-serif;}
+  .apikey{font-size:10.5px;color:var(--dim);}
+
+  #tooltip{position:fixed;pointer-events:none;background:var(--panel);border:1px solid var(--accent);border-radius:6px;
+    padding:8px 10px;font-size:11.5px;font-family:'JetBrains Mono',monospace;z-index:60;display:none;
+    box-shadow:0 4px 20px rgba(0,0,0,.5);max-width:240px;}
+  #tooltip b{color:var(--accent);}
+
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <h1>Граф денег</h1>
+      <div class="sub">AML network explorer — HackAlem AI</div>
+    </div>
+    <div class="loaders">
+      <label id="lbl-nodes">nodes_roles.csv<input type="file" id="f-nodes" accept=".csv"></label>
+      <label id="lbl-edges">edges_export.csv<input type="file" id="f-edges" accept=".csv"></label>
+      <label id="lbl-clusters">clusters.csv<input type="file" id="f-clusters" accept=".csv"></label>
+      <label id="lbl-top">top_nodes.csv<input type="file" id="f-top" accept=".csv"></label>
+      <label id="lbl-sar">sar_narratives.json (опц.)<input type="file" id="f-sar" accept=".json"></label>
+      <label id="lbl-res">network_resilience.csv (опц.)<input type="file" id="f-res" accept=".csv"></label>
+    </div>
+  </header>
+
+  <div id="kpis">
+    <div class="kpi"><b id="kpi-nodes">—</b><span>узлов</span></div>
+    <div class="kpi"><b id="kpi-edges">—</b><span>связей</span></div>
+    <div class="kpi"><b id="kpi-volume">—</b><span>оборот KZT</span></div>
+    <div class="kpi"><b id="kpi-seed">—</b><span>seed-клиентов</span></div>
+    <div class="kpi"><b id="kpi-clusters">—</b><span>кластеров</span></div>
+    <div class="kpi"><b id="kpi-flagged">—</b><span>на проверку (score≥0.6)</span></div>
+    <div class="kpi"><b id="kpi-resilience">—</b><span>устойчивость: топ-20 → компонента</span></div>
+  </div>
+
+  <aside class="left">
+    <div class="block">
+      <h3>Поиск по gid</h3>
+      <input type="text" id="search" placeholder="например: 100412">
+    </div>
+    <div class="block">
+      <h3>Роли</h3>
+      <div id="legend"></div>
+    </div>
+    <div class="block">
+      <h3>Кластер</h3>
+      <select id="cluster-filter"><option value="">все кластеры</option></select>
+    </div>
+    <div class="block">
+      <h3>Отображение</h3>
+      <button class="mini" id="btn-top" style="width:100%;margin-bottom:6px;">Топ-200 по приоритету</button>
+      <button class="mini" id="btn-all" style="width:100%;">Вся сеть (медленнее)</button>
+    </div>
+    <div class="block">
+      <h3>Топ-лист приоритетов</h3>
+      <div id="toplist"><div class="empty-hint">Загрузите top_nodes.csv</div></div>
+    </div>
+    <div class="block">
+      <button class="mini" id="btn-export" style="width:100%;">⬇ экспорт отчёта (топ-30, .txt)</button>
+    </div>
+  </aside>
+
+  <main>
+    <div id="tabs">
+      <button class="tab-btn active" data-tab="graph">Граф</button>
+      <button class="tab-btn" data-tab="overview">Обзор</button>
+      <button class="tab-btn" data-tab="clusters">Кластеры</button>
+      <button class="tab-btn" data-tab="resilience">Устойчивость</button>
+    </div>
+    <div class="tab-view active" id="graph-view"><div id="cy"></div></div>
+    <div class="tab-view" id="overview-view">
+      <div class="panel-title">Обзор сети</div>
+      <div class="panel-sub">Распределение ролей по всем узлам выборки</div>
+      <div id="role-chart"></div>
+    </div>
+    <div class="tab-view" id="clusters-view">
+      <div class="panel-title">Кластеры</div>
+      <div class="panel-sub">Гипотеза по каждому кластеру — клик переключает на «Граф» с фильтром по кластеру</div>
+      <table class="data-table" id="clusters-table">
+        <thead><tr><th>ID</th><th>Узлов</th><th>Seed</th><th>Оборот, KZT</th><th>Гипотеза</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="tab-view" id="resilience-view">
+      <div class="panel-title">Устойчивость сети (Key Player)</div>
+      <div class="panel-sub">Что произойдёт со связностью сети при изъятии топ-N узлов по приоритету — методика Borgatti (2006), disruption-анализ криминальных сетей</div>
+      <div id="resilience-chart"></div>
+    </div>
+  </main>
+
+  <aside class="right">
+    <div class="block">
+      <h3>Карточка узла</h3>
+      <div id="node-card" class="empty-hint">Кликните узел на схеме или найдите gid слева.</div>
+    </div>
+  </aside>
+</div>
+
+<div id="tooltip"></div>
+
+<button id="ai-fab">🤖 Спросить граф</button>
+<div id="ai-panel">
+  <div class="ai-head"><span>AI-ассистент по графу</span><span style="cursor:pointer;color:var(--dim);" id="ai-close">✕</span></div>
+  <div id="ai-log">
+    <div class="empty-hint">Укажи OpenRouter API key и задай вопрос, например: «кто собирает деньги с топ-5 узлов кластера 2?»</div>
+  </div>
+  <div id="ai-input-row" style="flex-direction:column;gap:8px;">
+    <input type="text" id="ai-key" placeholder="OpenRouter API key (sk-or-...)" class="apikey">
+    <div style="display:flex;gap:6px;">
+      <input type="text" id="ai-question" placeholder="Вопрос по графу...">
+      <button class="mini" id="ai-send">→</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const ROLE_COLORS = {
+  consolidator:'#ff4d6d', distributor:'#c86bff', transit:'#22e2b0',
+  coordinator:'#ffb020', terminal:'#7c8ba1', peripheral:'#33404f'
+};
+const ROLE_LABELS = {
+  consolidator:'Консолидация', distributor:'Распределение', transit:'Транзит',
+  coordinator:'Координация', terminal:'Конечный получатель', peripheral:'Периферия'
+};
+
+let state = { nodes:null, edges:null, clusters:null, top:null, sar:null, resilience:null, cy:null, activeRoles:new Set(Object.keys(ROLE_COLORS)) };
+let pulseAnims = [];
+
+function markLoaded(id){ document.getElementById(id).classList.add('loaded'); }
+
+function parseCSV(file, cb){
+  Papa.parse(file, { header:true, dynamicTyping:true, skipEmptyLines:true, complete: r => cb(r.data) });
+}
+function autoLoadCSV(path, cb){
+  Papa.parse(path, { download:true, header:true, dynamicTyping:true, skipEmptyLines:true,
+    complete:r=>cb(r.data), error:()=>{} });
+}
+function autoLoadAll(){
+  autoLoadCSV('nodes_roles.csv', d=>{ state.nodes=d; markLoaded('lbl-nodes'); buildLegend(); buildClusterFilter(); tryRender(); computeKPIs(); });
+  autoLoadCSV('edges_export.csv', d=>{ state.edges=d; markLoaded('lbl-edges'); tryRender(); computeKPIs(); });
+  autoLoadCSV('clusters.csv', d=>{ state.clusters=d; markLoaded('lbl-clusters'); buildClusterFilter(); buildClustersTable(); computeKPIs(); });
+  autoLoadCSV('top_nodes.csv', d=>{ state.top=d; markLoaded('lbl-top'); buildTopList(); computeKPIs(); });
+  fetch('sar_narratives.json').then(r=> r.ok ? r.json() : null).then(d=>{ if(d){ state.sar=d; markLoaded('lbl-sar'); } }).catch(()=>{});
+  autoLoadCSV('network_resilience.csv', d=>{ state.resilience=d; markLoaded('lbl-res'); buildResilience(); computeKPIs(); });
+}
+window.addEventListener('DOMContentLoaded', autoLoadAll);
+
+document.getElementById('f-nodes').addEventListener('change', e=>{
+  parseCSV(e.target.files[0], d=>{ state.nodes = d; markLoaded('lbl-nodes'); buildLegend(); buildClusterFilter(); tryRender(); computeKPIs(); });
+});
+document.getElementById('f-edges').addEventListener('change', e=>{
+  parseCSV(e.target.files[0], d=>{ state.edges = d; markLoaded('lbl-edges'); tryRender(); computeKPIs(); });
+});
+document.getElementById('f-clusters').addEventListener('change', e=>{
+  parseCSV(e.target.files[0], d=>{ state.clusters = d; markLoaded('lbl-clusters'); buildClusterFilter(); buildClustersTable(); computeKPIs(); });
+});
+document.getElementById('f-top').addEventListener('change', e=>{
+  parseCSV(e.target.files[0], d=>{ state.top = d; markLoaded('lbl-top'); buildTopList(); computeKPIs(); });
+});
+document.getElementById('f-sar').addEventListener('change', e=>{
+  const r = new FileReader();
+  r.onload = ()=>{ try{ state.sar = JSON.parse(r.result); markLoaded('lbl-sar'); }catch(err){} };
+  r.readAsText(e.target.files[0]);
+});
+document.getElementById('f-res').addEventListener('change', e=>{
+  parseCSV(e.target.files[0], d=>{ state.resilience = d; markLoaded('lbl-res'); buildResilience(); computeKPIs(); });
+});
+
+document.querySelectorAll('.tab-btn').forEach(btn=>{
+  btn.onclick = ()=>{
+    document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+    document.querySelectorAll('.tab-view').forEach(v=>v.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(btn.dataset.tab+'-view').classList.add('active');
+    if(btn.dataset.tab==='overview') buildRoleChart();
+  };
+});
+
+function computeKPIs(){
+  if(state.nodes){
+    document.getElementById('kpi-nodes').textContent = state.nodes.length.toLocaleString('ru-RU');
+    const flagged = state.nodes.filter(n=>(n.role_score||0)>=0.6 && n.role!=='peripheral').length;
+    document.getElementById('kpi-flagged').textContent = flagged.toLocaleString('ru-RU');
+  }
+  if(state.edges){
+    document.getElementById('kpi-edges').textContent = state.edges.length.toLocaleString('ru-RU');
+    const vol = state.edges.reduce((s,e)=>s+(e.sum_kzt||0),0);
+    document.getElementById('kpi-volume').textContent = Math.round(vol).toLocaleString('ru-RU');
+  }
+  if(state.clusters){
+    document.getElementById('kpi-clusters').textContent = state.clusters.length;
+    const seed = state.clusters.reduce((s,c)=>s+(c.n_seed||0),0);
+    document.getElementById('kpi-seed').textContent = seed;
+  }
+  if(state.resilience){
+    const row = state.resilience.find(r=>r.removed_top_k===20) || state.resilience.find(r=>r.removed_top_k===10);
+    if(row) document.getElementById('kpi-resilience').textContent = row.largest_component_pct + '%';
+  }
+}
+
+function buildLegend(){
+  const el = document.getElementById('legend'); el.innerHTML='';
+  Object.keys(ROLE_COLORS).forEach(role=>{
+    const count = state.nodes.filter(n=>n.role===role).length;
+    const div = document.createElement('div');
+    div.className='legend-item';
+    div.innerHTML = `<span class="dot" style="background:${ROLE_COLORS[role]};color:${ROLE_COLORS[role]}"></span> ${ROLE_LABELS[role]} <span style="color:var(--dim);margin-left:auto;">${count}</span>`;
+    div.onclick = ()=>{
+      if(state.activeRoles.has(role)){ state.activeRoles.delete(role); div.classList.add('off'); }
+      else { state.activeRoles.add(role); div.classList.remove('off'); }
+      applyRoleFilter();
+    };
+    el.appendChild(div);
+  });
+}
+
+function buildRoleChart(){
+  if(!state.nodes) return;
+  const el = document.getElementById('role-chart'); el.innerHTML='';
+  const total = state.nodes.length;
+  Object.keys(ROLE_COLORS).forEach(role=>{
+    const count = state.nodes.filter(n=>n.role===role).length;
+    const pct = total ? (count/total*100) : 0;
+    const row = document.createElement('div');
+    row.className='chart-row';
+    row.innerHTML = `<div class="chart-label">${ROLE_LABELS[role]}</div>
+      <div class="chart-track"><div class="chart-fill" style="width:${pct}%;background:${ROLE_COLORS[role]}"></div></div>
+      <div class="chart-val">${count} (${pct.toFixed(1)}%)</div>`;
+    el.appendChild(row);
+  });
+}
+
+function buildClustersTable(){
+  if(!state.clusters) return;
+  const tb = document.querySelector('#clusters-table tbody'); tb.innerHTML='';
+  [...state.clusters].sort((a,b)=>(b.n_nodes||0)-(a.n_nodes||0)).forEach(c=>{
+    const tr = document.createElement('tr');
+    tr.style.cursor='pointer';
+    tr.innerHTML = `<td>#${c.cluster_id}</td><td>${c.n_nodes}</td><td>${c.n_seed}</td>
+      <td>${Math.round(c.sum_kzt_internal||0).toLocaleString('ru-RU')}</td><td>${c.hypothesis||''}</td>`;
+    tr.onclick = ()=>{
+      document.querySelector('.tab-btn[data-tab="graph"]').click();
+      document.getElementById('cluster-filter').value = c.cluster_id;
+      filterByCluster(c.cluster_id);
+    };
+    tb.appendChild(tr);
+  });
+}
+
+function buildClusterFilter(){
+  if(!state.nodes) return;
+  const sel = document.getElementById('cluster-filter');
+  const ids = [...new Set(state.nodes.map(n=>n.cluster_id))].sort((a,b)=>a-b);
+  sel.innerHTML = '<option value="">все кластеры</option>' + ids.map(id=>`<option value="${id}">кластер ${id}</option>`).join('');
+  sel.onchange = ()=> filterByCluster(sel.value);
+}
+
+function buildTopList(){
+  const el = document.getElementById('toplist'); el.innerHTML='';
+  state.top.slice(0,30).forEach(row=>{
+    const div = document.createElement('div');
+    div.className='toplist-item';
+    div.innerHTML = `#${row.rank} · gid ${row.gid} <span class="r">${row.role}</span><br><span class="r">приоритет ${(row.priority_score||0).toFixed(2)}</span>`;
+    div.onclick = ()=> focusNode(row.gid);
+    el.appendChild(div);
+  });
+}
+
+function buildResilience(){
+  const table = `<table id="resilience-table"><thead><tr><th>Удалено топ-N</th><th>Наиб. компонента</th><th>Компонент</th></tr></thead><tbody>
+    ${state.resilience.map(r=>`<tr><td>${r.removed_top_k}</td><td>${r.largest_component_size} (${r.largest_component_pct}%)</td><td>${r.n_components}</td></tr>`).join('')}
+  </tbody></table>`;
+
+  const maxPct = 100;
+  const w=560, h=180, pad=30;
+  const pts = state.resilience.map((r,i)=>{
+    const x = pad + i*((w-2*pad)/(state.resilience.length-1||1));
+    const y = pad + (h-2*pad)*(1 - r.largest_component_pct/maxPct);
+    return {x,y,r};
+  });
+  const path = pts.map((p,i)=> (i===0?'M':'L')+p.x.toFixed(1)+','+p.y.toFixed(1)).join(' ');
+  const svg = `<svg width="${w}" height="${h}" style="overflow:visible;">
+    <line x1="${pad}" y1="${pad}" x2="${pad}" y2="${h-pad}" stroke="#232a35"/>
+    <line x1="${pad}" y1="${h-pad}" x2="${w-pad}" y2="${h-pad}" stroke="#232a35"/>
+    <path d="${path}" fill="none" stroke="#3fc9ff" stroke-width="2"/>
+    ${pts.map(p=>`<circle cx="${p.x}" cy="${p.y}" r="4" fill="#ff4d6d"/>
+      <text x="${p.x}" y="${h-pad+16}" fill="#71829a" font-size="10" text-anchor="middle" font-family="JetBrains Mono">${p.r.removed_top_k}</text>
+      <text x="${p.x}" y="${p.y-10}" fill="#e7edf5" font-size="10" text-anchor="middle" font-family="JetBrains Mono">${p.r.largest_component_pct}%</text>`).join('')}
+  </svg>`;
+
+  document.getElementById('resilience-chart').innerHTML =
+    `<div style="margin-bottom:24px;">${svg}</div>` + table;
+}
+
+function tryRender(){
+  if(!state.nodes || !state.edges) return;
+  renderGraph(topPriorityNodeIds(200));
+}
+
+function topPriorityNodeIds(n){
+  const sorted = [...state.nodes].sort((a,b)=>(b.priority_score||0)-(a.priority_score||0));
+  return new Set(sorted.slice(0,n).map(x=>String(x.gid)));
+}
+
+function stopPulses(){ pulseAnims.forEach(a=>{ try{a.stop();}catch(e){} }); pulseAnims=[]; }
+
+function startPulses(cy){
+  stopPulses();
+  const hot = cy.nodes().filter(n => (n.data('priority')||0) >= 0.75);
+  hot.forEach(n=>{
+    function loop(){
+      const a1 = n.animate({ style:{ 'shadow-blur': 26, 'shadow-opacity':0.9 } }, { duration:700, easing:'ease-in-out',
+        complete: ()=>{
+          const a2 = n.animate({ style:{ 'shadow-blur': 8, 'shadow-opacity':0.35 } }, { duration:700, easing:'ease-in-out', complete: loop });
+          pulseAnims.push(a2);
+        }});
+      pulseAnims.push(a1);
+    }
+    loop();
+  });
+}
+
+function renderGraph(idFilter){
+  const nodeById = {};
+  state.nodes.forEach(n=>nodeById[String(n.gid)]=n);
+  let nodeIds = idFilter || new Set(state.nodes.map(n=>String(n.gid)));
+
+  const elements = [];
+  nodeIds.forEach(id=>{
+    const n = nodeById[id]; if(!n) return;
+    elements.push({ data:{ id:String(n.gid), role:n.role, priority:n.priority_score||0, cluster:n.cluster_id, roleScore:n.role_score||0 }});
+  });
+  state.edges.forEach(e=>{
+    const s=String(e.src), t=String(e.dst);
+    if(nodeIds.has(s) && nodeIds.has(t)){
+      elements.push({ data:{ id:s+'->'+t+Math.random(), source:s, target:t, weight:Math.log((e.sum_kzt||1)+1), cycle:e.in_cycle }});
+    }
+  });
+
+  if(state.cy) state.cy.destroy();
+  state.cy = cytoscape({
+    container: document.getElementById('cy'),
+    elements,
+    style: [
+      { selector:'node', style:{
+        'background-color': ele => ROLE_COLORS[ele.data('role')] || '#555',
+        'width': ele => 8 + Math.min(30, (ele.data('priority')||0)*32),
+        'height': ele => 8 + Math.min(30, (ele.data('priority')||0)*32),
+        'label': 'data(id)', 'color':'#c8d4e2', 'font-size':8, 'font-family':'JetBrains Mono',
+        'text-valign':'bottom', 'text-margin-y':4, 'min-zoomed-font-size': 9,
+        'border-width':1, 'border-color':'#0008',
+        'shadow-blur': 8, 'shadow-color': ele => ROLE_COLORS[ele.data('role')] || '#555', 'shadow-opacity':0.35, 'shadow-offset-x':0,'shadow-offset-y':0
+      }},
+      { selector:'edge', style:{
+        'width': ele => Math.max(0.5, Math.min(4, ele.data('weight')/3)),
+        'line-color': ele => ele.data('cycle') ? '#ff3b3b' : '#2a3542',
+        'target-arrow-color': ele => ele.data('cycle') ? '#ff3b3b' : '#2a3542',
+        'target-arrow-shape':'triangle', 'curve-style':'bezier', 'opacity': ele => ele.data('cycle') ? 0.9 : 0.5, 'arrow-scale':0.6
+      }},
+      { selector:'.highlighted', style:{ 'border-color':'#3fc9ff','border-width':3 } },
+      { selector:'.dimmed', style:{ 'opacity':0.08 } }
+    ],
+    layout: { name:'cose', animate:false, nodeRepulsion: 8000, idealEdgeLength: 60, numIter: 800 }
+  });
+
+  state.cy.on('tap', 'node', evt=> focusNode(evt.target.id()));
+
+  const tooltip = document.getElementById('tooltip');
+  state.cy.on('mouseover', 'node', evt=>{
+    const n = evt.target;
+    const data = state.nodes.find(x=>String(x.gid)===n.id());
+    if(!data) return;
+    tooltip.innerHTML = `<b>gid ${data.gid}</b><br>роль: ${ROLE_LABELS[data.role]||data.role}<br>приоритет: ${(data.priority_score||0).toFixed(2)} · score: ${(data.role_score||0).toFixed(2)}<br>кластер #${data.cluster_id}`;
+    tooltip.style.display='block';
+  });
+  state.cy.on('mouseout', 'node', ()=> tooltip.style.display='none');
+  document.getElementById('cy').addEventListener('mousemove', e=>{
+    tooltip.style.left = (e.clientX+14)+'px';
+    tooltip.style.top = (e.clientY+14)+'px';
+  });
+
+  startPulses(state.cy);
+}
+
+document.getElementById('btn-top').onclick = ()=>{ if(state.nodes && state.edges) renderGraph(topPriorityNodeIds(200)); };
+document.getElementById('btn-all').onclick = ()=>{ if(state.nodes && state.edges) renderGraph(null); };
+
+function filterByCluster(clusterId){
+  if(!state.cy) return;
+  state.cy.nodes().forEach(n=>{
+    const show = clusterId==='' || String(n.data('cluster'))===String(clusterId);
+    n.style('display', show ? 'element':'none');
+  });
+}
+
+function applyRoleFilter(){
+  if(!state.cy) return;
+  state.cy.nodes().forEach(n=>{
+    n.style('display', state.activeRoles.has(n.data('role')) ? 'element':'none');
+  });
+}
+
+function focusNode(gid){
+  gid = String(gid);
+  if(state.cy && state.cy.getElementById(gid).length){
+    const ele = state.cy.getElementById(gid);
+    state.cy.animate({ center:{ eles: ele }, zoom:2.4 }, { duration:400 });
+    state.cy.elements().removeClass('highlighted dimmed');
+    ele.addClass('highlighted');
+  }
+  showNodeCard(gid);
+}
+
+document.getElementById('search').addEventListener('keydown', e=>{
+  if(e.key==='Enter') focusNode(e.target.value.trim());
+});
+
+function escapeHTML(str){
+  const div = document.createElement('div');
+  div.textContent = str==null ? '' : String(str);
+  return div.innerHTML;
+}
+
+function showNodeCard(gid){
+  if(!state.nodes) return;
+  const n = state.nodes.find(x=>String(x.gid)===String(gid));
+  const card = document.getElementById('node-card');
+  if(!n){ card.innerHTML = '<div class="empty-hint">Узел не найден.</div>'; return; }
+  const sar = state.sar ? state.sar.find(s=>String(s.gid)===String(gid)) : null;
+  card.innerHTML = `
+    <div class="card">
+      <div class="kv"><span>gid</span><span>${escapeHTML(n.gid)}</span></div>
+      <div class="kv"><span>роль</span><span style="color:${ROLE_COLORS[n.role]}">${ROLE_LABELS[n.role]||n.role}</span></div>
+      <div class="kv"><span>role_score</span><span>${(n.role_score||0).toFixed(2)}</span></div>
+      <div class="kv"><span>priority_score</span><span>${(n.priority_score||0).toFixed(2)}</span></div>
+      <div class="kv"><span>кластер</span><span>${escapeHTML(n.cluster_id)}</span></div>
+      <p style="margin:10px 0 0;color:var(--dim);font-size:11.5px;">${escapeHTML(n.evidence||'')}</p>
+      ${sar ? `<p style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px;"><b>SAR-нарратив:</b><br>${escapeHTML(sar.narrative)}</p>` : ''}
+      <div style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap;">
+        <button class="mini" id="btn-focus-node">центрировать</button>
+        ${sar ? `<button class="mini" id="btn-copy-sar">📋 копировать SAR</button>` : ''}
+      </div>
+    </div>`;
+  // Безопасно навешиваем обработчики через addEventListener + closure,
+  // а не через inline onclick="" со строковой интерполяцией gid/narrative —
+  // это и есть тот самый фикс "мудрёного экранирования" при копировании SAR:
+  // спецсимволы (кавычки, переносы строк, апострофы) в narrative/gid больше
+  // не могут сломать сгенерированную разметку или сам обработчик.
+  const btnFocus = document.getElementById('btn-focus-node');
+  if(btnFocus) btnFocus.onclick = ()=> focusNode(n.gid);
+  if(sar){
+    document.getElementById('btn-copy-sar').onclick = ()=>{
+      navigator.clipboard.writeText(sar.narrative).catch(()=>{
+        // запасной путь, если Clipboard API недоступен (например, не-HTTPS контекст)
+        const ta = document.createElement('textarea');
+        ta.value = sar.narrative;
+        ta.style.position='fixed'; ta.style.opacity='0';
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); }catch(e){}
+        document.body.removeChild(ta);
+      });
+    };
+  }
+}
+
+document.getElementById('btn-export').onclick = ()=>{
+  if(!state.top){ alert('Сначала загрузи top_nodes.csv'); return; }
+  let text = `ОТЧЁТ: приоритетные узлы для проверки — граф денег\nСформировано: ${new Date().toLocaleString('ru-RU')}\n\n`;
+  state.top.slice(0,30).forEach(row=>{
+    const sar = state.sar ? state.sar.find(s=>String(s.gid)===String(row.gid)) : null;
+    text += `#${row.rank}. gid ${row.gid} — ${row.role} (приоритет ${(row.priority_score||0).toFixed(2)})\n`;
+    text += (sar ? sar.narrative : row.why || '') + '\n\n';
+  });
+  const blob = new Blob([text], {type:'text/plain;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'top_nodes_report.txt';
+  a.click();
+};
+
+document.getElementById('ai-fab').onclick = ()=> document.getElementById('ai-panel').classList.add('open');
+document.getElementById('ai-close').onclick = ()=> document.getElementById('ai-panel').classList.remove('open');
+
+async function askGraph(question){
+  const log = document.getElementById('ai-log');
+  const key = document.getElementById('ai-key').value.trim();
+  if(!key){ log.innerHTML += `<div class="a">Нужен API-ключ OpenRouter.</div>`; return; }
+  if(!state.top){ log.innerHTML += `<div class="a">Сначала загрузите top_nodes.csv (и опц. clusters.csv).</div>`; return; }
+
+  const qDiv = document.createElement('div'); qDiv.className='q'; qDiv.textContent = 'Вы: ' + question;
+  const aDiv = document.createElement('div'); aDiv.className='a'; aDiv.textContent = '…думаю…';
+  log.appendChild(qDiv); log.appendChild(aDiv);
+  log.scrollTop = log.scrollHeight;
+
+  const context = {
+    top_nodes: state.top.slice(0,40),
+    clusters: state.clusters ? state.clusters.slice(0,20) : null,
+  };
+  const sys = `Ты — аналитический ассистент AML-аналитика банка. У тебя есть данные top_nodes (rank, gid, role, priority_score, why) и clusters (cluster_id, n_nodes, n_seed, sum_kzt_internal, hypothesis) из графа транзакций. Отвечай кратко, по-русски, ссылайся на конкретные gid из данных. Формулируй выводы как гипотезы для проверки, а не как утверждения о виновности. Не выдумывай gid, которых нет в данных.`;
+
+  try{
+    const resp = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method:"POST",
+      headers:{ "Content-Type":"application/json", "Authorization":"Bearer "+key },
+      body: JSON.stringify({
+        model:"anthropic/claude-3.5-sonnet",
+        messages:[
+          { role:"system", content: sys },
+          { role:"user", content: `Данные:\n${JSON.stringify(context)}\n\nВопрос: ${question}` }
+        ]
+      })
+    });
+    const data = await resp.json();
+    const answer = data.choices?.[0]?.message?.content || JSON.stringify(data);
+    aDiv.textContent = answer;
+  }catch(err){
+    aDiv.textContent = "Ошибка запроса: " + err.message;
+  }
+  log.scrollTop = log.scrollHeight;
+}
+
+document.getElementById('ai-send').onclick = ()=>{
+  const inp = document.getElementById('ai-question');
+  if(inp.value.trim()){ askGraph(inp.value.trim()); inp.value=''; }
+};
+document.getElementById('ai-question').addEventListener('keydown', e=>{
+  if(e.key==='Enter') document.getElementById('ai-send').click();
+});
+</script>
+</body>
+</html>
